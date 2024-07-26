@@ -2,7 +2,15 @@
 version: '3'
 
 services:
-  hello-world-webapp:
-    build: '.'
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.src
     ports:
-      - '8080:5000'
+      - "5000:5000"
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    command: ["python", "-m", "unittest", "discover", "-s", "/tests"]
