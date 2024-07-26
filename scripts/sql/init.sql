@@ -1,0 +1,9 @@
+CREATE DATABASE IF NOT EXISTS mydb;
+
+USE mydb;
+
+CREATE TABLE IF NOT EXISTS words (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    original_word VARCHAR(255) NOT NULL,
+    mirrored_word VARCHAR(255) NOT NULL
+);

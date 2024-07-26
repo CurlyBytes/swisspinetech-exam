@@ -1,5 +1,4 @@
-# docker-compose.yaml
-version: '3'
+version: '3.8'
 
 services:
   web:
@@ -8,9 +7,62 @@ services:
       dockerfile: Dockerfile.src
     ports:
       - "5000:5000"
+    depends_on:
+      - mysql
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=rootpassword
+      - MYSQL_DATABASE=mydb
+    networks:
+      - app-network
+      
+  mysql:
+    image: 'mysql:8.0.19'
+    restart: always
+    working_dir: /app
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./scripts/sql:/docker-entrypoint-initdb.d
+    networks:
+      - app-network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.0.1
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: rootpassword
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_PASSWORD: password
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - app-network
 
   test:
     build:
       context: .
       dockerfile: Dockerfile.tests
     command: ["python", "-m", "unittest", "discover", "-s", "/tests"]
+    depends_on:
+      - mysql
+      - web
+    networks:
+      - app-network
+
+volumes:
+  db_data:
+
+networks:
+  app-network:
+    driver: bridge
