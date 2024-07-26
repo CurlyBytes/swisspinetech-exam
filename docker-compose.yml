@@ -1,0 +1,8 @@
+# docker-compose.yaml
+version: '3'
+
+services:
+  hello-world-webapp:
+    build: '.'
+    ports:
+      - '8080:5000'
