@@ -1,6 +1,7 @@
 # Swiss Pine Technology - Exam
 This Repository is intended for technical exam required from the Organization in [SwissPine Technology](https://swisspinetech.com/) and this will by my Entry as an applicant
 
+[![Build Status](https://dev.azure.com/curlybytes/Public/_apis/build/status%2FCurlyBytes.swisspinetech-exam?branchName=main)](https://dev.azure.com/curlybytes/Public/_build/latest?definitionId=12&branchName=main)
 
 # Problem Statement
 The assessment includes challenges across the whole stack that the client is using as follows:
