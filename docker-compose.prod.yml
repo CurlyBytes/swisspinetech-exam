@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  web:
+    image: acidglshared.azurecr.io/poc-build-cocoy:0.1.0
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mysql
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=rootpassword
+      - MYSQL_DATABASE=mydb
+    networks:
+      - app-network
+      - caddy
+    labels:
+      caddy: cocoytest.digithreelabs.com
+      caddy.reverse_proxy: "{{upstreams http 5000}}"
+
+  mysql:
+    image: 'mysql:8.0.19'
+    restart: always
+    working_dir: /app
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./scripts/sql:/docker-entrypoint-initdb.d
+    networks:
+      - app-network
+
+
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:ci-alpine
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      - CADDY_INGRESS_NETWORKS=caddy
+    networks:
+      - caddy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - caddy_data:/data
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  caddy_data: {}
+
+networks:
+  app-network:
+    driver: bridge
+  caddy:
+    external: true

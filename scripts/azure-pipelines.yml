@@ -1,0 +1,212 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+---
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: "dgl-shared-configuration"
+  - name: SemanticVersion
+    value: 0.1.0
+  - name: location
+    value: 'eastus'
+  - name: terraformGroup 
+    value: 'rg-dgl-share-eus-1'
+  - name: terraformStorageName 
+    value: 'stgaccdclprd1'
+  - name: terraformStorageSku  
+    value: 'Standard_LRS'
+  - name: terraformContainerName
+    value: 'tfstatesproduction'
+  - name: terraformStateFilename
+    value: 'cocoypoc.digithreelabs.com.tfstate'
+stages:
+  - stage: ContinousIntegration
+    displayName: Continous Integration
+    jobs:
+      - job: BuildContainer
+        displayName: 'Build - (Azure Container Registry)'
+        steps:
+          - checkout: self
+            submodules: recursive
+            persistCredentials: true
+
+          - script: |
+              docker-compose up -d --build 
+              docker-compose run test
+            displayName: 'Run Unit Tests'
+
+          - task: Docker@2 
+            condition: succeeded()
+            displayName: "Login Container"
+            inputs:
+              containerRegistry: 'terraform-az-dg'
+              command: 'login'
+
+          - task: Docker@2
+            displayName: "Build poc-build-cocoy Image"
+            inputs:
+              containerRegistry: 'terraform-az-dg'
+              repository: 'poc-build-cocoy'
+              command: 'buildAndPush'
+              Dockerfile: '$(Build.SourcesDirectory)/Dockerfile.src'
+              buildContext: '$(Build.SourcesDirectory)'
+              tags: '$(SemanticVersion)'
+
+
+      - job: IACVM
+        displayName: 'IAC - (Terraform)'
+        steps:
+          - checkout: self
+            submodules: recursive
+            persistCredentials: true
+
+
+          - task: Cache@2
+            displayName: "Task - Terraform cache"
+            inputs:
+              key: '"terraform | $(Agent.OS) | "$(Build.BuildNumber)" | $(Build.SourceVersion)"'
+              path: '$(Agent.TempDirectory)/environment'
+
+          - task: CopyFiles@2
+            displayName: "Task - Copy Terraform files"
+            inputs:
+              SourceFolder: '$(System.DefaultWorkingDirectory)/scripts/iac'
+              Contents: '**'
+              TargetFolder: '$(Agent.TempDirectory)/environment'
+
+
+          - task: PowerShell@2
+            displayName: "Task - Inject State Management"
+            inputs:
+              targetType: 'inline'
+              script: |
+                $filename = "backend.tf"  
+                $path = "$(Agent.TempDirectory)/environment"  
+                $pathandfile = "$path\$filename"  
+                if ((Test-Path -Path $pathandfile) -eq $false){  
+                    New-Item -Path $path -Name $filename -ItemType "file" -Value "terraform { `r`n backend ""azurerm"" {`r`n} `r`n }"  
+                }
+              pwsh: true
+              workingDirectory: '$(Agent.TempDirectory)/environment'
+            env:
+              TF_IN_AUTOMATION: true
+              ARM_CLIENT_ID: $(generic-appreg-clientid-terraform)
+              ARM_CLIENT_SECRET: $(generic-appreg-clientsecret-terraform)
+              ARM_SUBSCRIPTION_ID: $(generic-appreg-subscriptionid)
+              ARM_TENANT_ID: $(generic-appreg-tenantid)
+
+          - task: file-creator@6
+            displayName: "Task - Create Backend State"
+            inputs:
+              filepath: '$(Agent.TempDirectory)/environment/azure.conf'
+              filecontent: |
+                resource_group_name  = "$(terraformGroup)"
+                storage_account_name = "$(terraformStorageName)"
+                container_name       = "$(terraformContainerName)"
+                key                  = "$(terraformStateFilename)"
+                access_key           = "$(dcl-storage-account-key)"
+              fileoverwrite: true
+              endWithNewLine: true
+
+          - task: PowerShell@2
+            displayName: "Task - Terraform Init"
+            inputs:
+              targetType: 'inline'
+              script: |
+                terraform init -backend-config='$(Agent.TempDirectory)/environment/azure.conf' -input=false  -reconfigure
+              pwsh: true
+              workingDirectory: '$(Agent.TempDirectory)/environment'
+            env:
+              TF_IN_AUTOMATION: true
+              ARM_CLIENT_ID: $(generic-appreg-clientid-terraform)
+              ARM_CLIENT_SECRET: $(generic-appreg-clientsecret-terraform)
+              ARM_SUBSCRIPTION_ID: $(generic-appreg-subscriptionid)
+              ARM_TENANT_ID: $(generic-appreg-tenantid)
+              TF_VAR_CONSUMER_NAME: $(ConsumersName)
+              TF_VAR_TOKEN_DIGITAL_OCEAN: $(dcl-digital-ocean-token)
+              TF_VAR_AZURE_DEVOPS_PAT_TOKEN: $(dcl-azure-devops-pat-token)
+              TF_VAR_CLOUDFLARE_API_TOKEN: $(dcl-cloudflare-token)
+
+          - task: PowerShell@2
+            displayName: "Task - Terraform Validate"
+            inputs:
+              targetType: 'inline'
+              script: |
+                terraform fmt -check=true -write=false -diff=true 
+                terraform validate 
+              pwsh: true
+              workingDirectory: '$(Agent.TempDirectory)/environment'
+            env:
+              TF_IN_AUTOMATION: true
+              ARM_CLIENT_ID: $(generic-appreg-clientid-terraform)
+              ARM_CLIENT_SECRET: $(generic-appreg-clientsecret-terraform)
+              ARM_SUBSCRIPTION_ID: $(generic-appreg-subscriptionid)
+              ARM_TENANT_ID: $(generic-appreg-tenantid)
+
+          - task: PowerShell@2
+            displayName: "Task - Terraform Plan"
+            inputs:
+              targetType: 'inline'
+              script: 'terraform plan -compact-warnings -input=false -out="infrastate.tfplan" -lock=false'
+              pwsh: true
+              workingDirectory: '$(Agent.TempDirectory)/environment'
+            env:
+              TF_IN_AUTOMATION: true
+              ARM_CLIENT_ID: $(generic-appreg-clientid-terraform)
+              ARM_CLIENT_SECRET: $(generic-appreg-clientsecret-terraform)
+              ARM_SUBSCRIPTION_ID: $(generic-appreg-subscriptionid)
+              ARM_TENANT_ID: $(generic-appreg-tenantid)
+              TF_VAR_CONSUMER_NAME: $(ConsumersName)
+              TF_VAR_TOKEN_DIGITAL_OCEAN: $(dcl-digital-ocean-token)
+              TF_VAR_AZURE_DEVOPS_PAT_TOKEN: $(dcl-azure-devops-pat-token)
+              TF_VAR_CLOUDFLARE_API_TOKEN: $(dcl-cloudflare-token)
+
+          - task: PowerShell@2
+            displayName: "Task - Terraform Apply"
+            name: terraform
+            inputs:
+              targetType: 'inline'
+              script: |
+                chmod -R +x .terraform
+                terraform apply -input=false -auto-approve -lock=true -lock-timeout=5m
+                $tfoutput = (terraform output --json) | ConvertFrom-Json
+                if ($tfoutput -eq $null) {
+                  Write-Host("No Terraform output variables found")
+                } else {
+                  foreach($outputVar in $tfoutput.psobject.properties) {
+                    if ($outputVar.value.sensitive -eq "true") {
+                        #Write-Host("##vso[task.setvariable variable=$($outputVar.name);issecret=true;isOutput=true]$($outputVar.value.value)")
+                        #Write-Host("$($outputVar.name)-***SECRET***")
+                        
+                    } else {  
+                        #Write-Host("##vso[task.setvariable variable=$($outputVar.name);isOutput=true]$($outputVar.value.value)")
+                        #Write-Host("$($outputVar.name)-$($outputVar.value.value)")  
+                    }
+                  }
+
+                }
+              pwsh: true
+              workingDirectory: '$(Agent.TempDirectory)/environment'
+            env:
+              TF_IN_AUTOMATION: true
+              ARM_CLIENT_ID: $(generic-appreg-clientid-terraform)
+              ARM_CLIENT_SECRET: $(generic-appreg-clientsecret-terraform)
+              ARM_SUBSCRIPTION_ID: $(generic-appreg-subscriptionid)
+              ARM_TENANT_ID: $(generic-appreg-tenantid)
+              TF_VAR_CONSUMER_NAME: $(ConsumersName)
+              TF_VAR_TOKEN_DIGITAL_OCEAN: $(dcl-digital-ocean-token)
+              TF_VAR_AZURE_DEVOPS_PAT_TOKEN: $(dcl-azure-devops-pat-token)
+              TF_VAR_CLOUDFLARE_API_TOKEN: $(dcl-cloudflare-token)
+
+          - task: TerraformOutput@1
+            displayName: "Task - Output Terraform plan file"
+            condition: always()
+            inputs:
+              outputFilePath: '$(Agent.TempDirectory)/environment/infrastate.tfplan'
+              artifactName: 'Production'
