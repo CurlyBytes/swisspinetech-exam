@@ -58,15 +58,6 @@ stages:
               buildContext: '$(Build.SourcesDirectory)'
               tags: '$(SemanticVersion)'
 
-          - task: Docker@2
-            displayName: "Build poc-test-cocoy Image"
-            inputs:
-              containerRegistry: 'terraform-az-dg'
-              repository: 'poc-test-cocoy'
-              command: 'buildAndPush'
-              Dockerfile: '$(Build.SourcesDirectory)/Dockerfile.tests'
-              buildContext: '$(Build.SourcesDirectory)'
-              tags: '$(SemanticVersion)'
 
       - job: IACVM
         displayName: 'IAC - (Terraform)'
